@@ -18,7 +18,9 @@ import argparse
 import datetime as dt
 import logging
 import math
+import os
 import sys
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -396,6 +398,43 @@ def build_rows(
     return rows
 
 
+# --- Presentation helper used by both single-shot and watch mode -----------
+
+def _display(
+    contracts: dict[float, dict[str, Option]],
+    spot: float,
+    expiry: dt.date,
+    atm_strike: float,
+) -> None:
+    dte = (expiry - dt.date.today()).days
+    dte_label = "0DTE" if dte == 0 else f"DTE={dte}"
+    ts = dt.datetime.now().strftime("%H:%M:%S")
+    print(
+        f"\nSPX  spot={spot:.2f}  expiry={expiry.isoformat()} ({dte_label})  [{ts}]"
+    )
+    headers = ["Contract", "Strike", "Bid", "Ask", "Mid", "OI", "Volume", "1σ Move"]
+    rows = build_rows(contracts, atm_strike)
+    print(tabulate(rows, headers=headers, tablefmt="github", stralign="right"))
+    print("  (* = ATM strike  |  1σ Move = per-strike straddle mid × √(π/2))")
+
+    em = tastylive_expected_move(contracts, spot)
+    if em is None:
+        print("  [insufficient ATM quotes for tastylive EM]")
+        return
+    move = em["expected_move"]
+    pct = move / spot * 100.0
+    print(
+        f"\n  tastylive 60/30/10  EM = ±{move:.2f} ({pct:.2f}%)"
+        f"   [{spot - move:.2f} … {spot + move:.2f}]"
+    )
+    print(
+        f"    ATM straddle = {fmt_money(em['atm_straddle'])}"
+        f"  |  OTM1 = {fmt_money(em['otm1_strangle'])}"
+        f"  |  OTM2 = {fmt_money(em['otm2_strangle'])}"
+        f"  |  weights = {em['weight_used']:.2f}"
+    )
+
+
 # --- CLI --------------------------------------------------------------------
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -433,6 +472,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--verify-ssl",
         action="store_true",
         help="Verify the gateway's TLS certificate (off by default for self-signed)",
+    )
+    parser.add_argument(
+        "--watch",
+        type=int,
+        metavar="SECONDS",
+        help="Re-fetch snapshot and refresh output every N seconds (Ctrl-C to stop)",
     )
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
@@ -525,47 +570,31 @@ def run(client: IBKRClient, args: argparse.Namespace) -> int:
 
     print("\n== Snapshots ==")
     fill_snapshots(client, contracts, oi_field=args.oi_field)
-    print("  populated bid/ask/last/volume/open-interest")
+    print("  done")
 
-    # ATM strike (used for the marker in the table and the 60/30/10 formula)
     atm_strike = min(contracts.keys(), key=lambda k: abs(k - spot))
 
-    headers = [
-        "Contract",
-        "Strike",
-        "Bid",
-        "Ask",
-        "Mid",
-        "OI",
-        "Volume",
-        "1σ Move",
-    ]
-    rows = build_rows(contracts, atm_strike)
-    print()
-    print(tabulate(rows, headers=headers, tablefmt="github", stralign="right"))
-    print("  (* = ATM strike. 1σ Move = per-strike straddle mid × √(π/2))")
+    if args.watch is None:
+        # Single-shot mode
+        _display(contracts, spot, expiry, atm_strike)
+        return 0
 
-    print("\n== tastylive 60/30/10 Expected Move ==")
-    em = tastylive_expected_move(contracts, spot)
-    if em is None:
-        print(
-            "  Insufficient quotes around the ATM strike to compute the "
-            "weighted expected move.",
-            file=sys.stderr,
-        )
-        return 6
-    move = em["expected_move"]
-    print(f"  Spot                = {spot:.2f}")
-    print(f"  ATM strike          = {em['atm_strike']:.2f}")
-    print(f"  ATM straddle (mid)  = {fmt_money(em['atm_straddle'])}")
-    print(f"  1st OTM strangle    = {fmt_money(em['otm1_strangle'])}")
-    print(f"  2nd OTM strangle    = {fmt_money(em['otm2_strangle'])}")
-    print(f"  Weights applied     = {em['weight_used']:.2f}")
-    print(f"  Expected move (1σ)  = ±{move:.2f}")
-    print(f"  Upper bound         = {spot + move:.2f}")
-    print(f"  Lower bound         = {spot - move:.2f}")
-    pct = move / spot * 100.0 if spot else float("nan")
-    print(f"  As % of spot        = ±{pct:.2f}%")
+    # Watch mode: contract conids are resolved once; only the snapshot is
+    # re-fetched on each tick, keeping API overhead low.
+    print(f"\n[watch mode — refreshing every {args.watch}s — Ctrl-C to stop]\n")
+    try:
+        while True:
+            os.system("clear" if os.name == "posix" else "cls")
+            _display(contracts, spot, expiry, atm_strike)
+            time.sleep(args.watch)
+            # Re-fetch spot in case it moved
+            new_spot = get_index_spot(client, spx_conid)
+            if new_spot:
+                spot = new_spot
+                atm_strike = min(contracts.keys(), key=lambda k: abs(k - spot))
+            fill_snapshots(client, contracts, oi_field=args.oi_field)
+    except KeyboardInterrupt:
+        print("\nStopped.")
     return 0
 
 

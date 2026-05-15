@@ -1,133 +1,175 @@
-# SPX 0DTE Expected Move
+# SPX 0DTE Expected Move — IBKR Client Portal
 
-A small Python workflow that pulls a live SPX 0DTE options snapshot from the
-Interactive Brokers **Client Portal API** gateway, resolves the nearest
-expiration and a range of strikes around spot, and computes a 1-sigma
-expected move using the tastylive 60/30/10 weighting.
+Pulls a live SPX 0DTE options snapshot from a running Interactive Brokers
+Client Portal Gateway, resolves the nearest daily expiration and a band of
+strikes around spot, and prints:
 
-## What it does
+- A per-contract table (symbol, strike, bid, ask, mid, OI, volume, 1σ move).
+- The tastylive **60/30/10** weighted expected move with upper/lower bounds.
 
-1. Verifies the local Client Portal gateway is authenticated.
-2. Resolves the SPX index conid via `/iserver/secdef/search`.
-3. Pulls a snapshot of SPX to get spot.
-4. Finds the nearest expiration on or after today (0DTE when available).
-5. Picks the ATM strike and N strikes either side of it.
-6. Resolves each (strike, right) pair into an option conid for that
-   expiration, preferring the `SPXW` trading class for dailies/weeklies.
-7. Snapshots every option to populate bid / ask / last / volume / OI.
-8. Prints a per-contract table plus the tastylive expected move.
+---
 
-## tastylive 60/30/10 formula
+## 1. Local setup — IBKR Client Portal Gateway
 
+### 1a. Requirements
+
+- **IBKR account** with market-data subscriptions for SPX index options.
+- **Java 11 or later** (`java -version` to check; install via your package
+  manager or https://adoptium.net if missing).
+
+### 1b. Download the gateway
+
+Log in to the IBKR website, navigate to **Technology → APIs → Client Portal
+API**, and download the latest **Client Portal API** zip. Unzip it somewhere
+convenient, e.g.:
+
+```bash
+unzip clientportal.gw.zip -d ~/ibkr-gateway
+cd ~/ibkr-gateway
 ```
-EM(1σ) = 0.60 · ATM_straddle
-       + 0.30 · 1st_OTM_strangle
-       + 0.10 · 2nd_OTM_strangle
+
+### 1c. Verify the bundled config
+
+The zip includes `root/conf.yaml`. The defaults work out of the box for a
+local session; the relevant fields are:
+
+```yaml
+listenPort: 5000
+listenSsl: true
 ```
 
-- **ATM straddle** = call mid + put mid at the strike nearest spot.
-- **1st OTM strangle** = call one strike above ATM + put one strike below.
-- **2nd OTM strangle** = call two strikes above + put two strikes below.
+No edits needed unless you want a different port.
 
-If the OTM strangles are unavailable (e.g. you requested only a thin band of
-strikes), their weights are dropped and the remaining weights are rescaled so
-the result still represents a 1-sigma move.
+### 1d. Start the gateway
 
-## Prerequisites
+```bash
+# macOS / Linux
+cd ~/ibkr-gateway
+bin/run.sh root/conf.yaml
 
-- IBKR Client Portal Gateway (or IBeam) running locally; default URL
-  `https://localhost:5000/v1/api`.
-- An authenticated session: visit the gateway URL in a browser and complete
-  the IBKR login flow before running this script.
-- A market-data subscription that covers SPX index options. Without it the
-  snapshot endpoint will return delayed or empty fields.
+# Windows
+cd %USERPROFILE%\ibkr-gateway
+bin\run.bat root\conf.yaml
+```
 
-## Install
+The gateway prints startup messages and then waits for a browser login.
+
+### 1e. Authenticate
+
+Open `https://localhost:5000` in a browser. Accept the self-signed
+certificate warning (it's expected — the gateway uses a local cert). Log in
+with your IBKR username and password, and complete any two-factor prompt.
+
+Once the browser shows "Client login succeeds", the gateway is ready.
+
+---
+
+## 2. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Run
+---
+
+## 3. Run
+
+### Single snapshot
 
 ```bash
 python spx_expected_move.py
-# Or with options
-python spx_expected_move.py --num-strikes 7 --base-url https://localhost:5000/v1/api
 ```
 
-## CLI options
+### Intraday watch mode (auto-refreshes, contract conids cached after first run)
+
+```bash
+python spx_expected_move.py --watch 60   # refresh every 60 seconds
+```
+
+### Keep the gateway session alive in a separate terminal
+
+The gateway logs you out after ~10 minutes of inactivity. Run this alongside
+the main script:
+
+```bash
+python keepalive.py                  # tickle every 55 s
+python keepalive.py --interval 30    # faster
+```
+
+---
+
+## 4. CLI reference
+
+### spx_expected_move.py
 
 | Flag | Default | Description |
-|---|---|---|
-| `--base-url` | `https://localhost:5000/v1/api` | Client Portal gateway base URL |
-| `--num-strikes` | `5` | Strikes to pull on each side of ATM |
-| `--exchange` | `SMART` | Exchange routing for the chain lookup |
-| `--expiration` | today | Override target expiration (`YYYY-MM-DD`) |
-| `--trading-class` | `SPXW` | Preferred trading class (use `SPX` for monthlies) |
-| `--oi-field` | `7762` | Snapshot field ID for OI (varies by gateway) |
-| `--verify-ssl` | off | Verify the gateway's TLS cert (off by default for self-signed) |
+|------|---------|-------------|
+| `--base-url` | `https://localhost:5000/v1/api` | Gateway URL |
+| `--num-strikes` | `5` | Strikes each side of ATM |
+| `--exchange` | `SMART` | Chain lookup routing |
+| `--expiration` | today | Override target date (`YYYY-MM-DD`) |
+| `--trading-class` | `SPXW` | `SPXW` for dailies/weeklies, `SPX` for monthlies |
+| `--oi-field` | `7762` | Snapshot field ID for open interest |
+| `--watch` | off | Refresh every N seconds (Ctrl-C to stop) |
+| `--verify-ssl` | off | Verify gateway TLS cert |
 | `--verbose` | off | Debug logging |
 
-## Example output
+### keepalive.py
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--base-url` | `https://localhost:5000/v1/api` | Gateway URL |
+| `--interval` | `55` | Seconds between tickles |
+
+---
+
+## 5. tastylive 60/30/10 formula
 
 ```
-== Auth check ==
-  authenticated=True connected=True competing=False
-
-== Resolving SPX ==
-  conid=416904  (S&P 500 - CBOE)
-
-== SPX spot ==
-  spot=5821.40
-
-== Expiration on/after 2026-05-15 ==
-  selected=2026-05-15  DTE=0
-
-== Strike chain ==
-  256 total strikes in MAY26
-  using 11 strikes: 5795 .. 5845
-
-== Resolving option contracts ==
-  resolved 22 contracts across 11 strikes
-
-== Snapshots ==
-  populated bid/ask/last/volume/open-interest
-
-| Contract                       | Strike  | Bid  | Ask  | Mid  |     OI |  Volume | 1σ Move |
-|--------------------------------|---------|------|------|------|--------|---------|---------|
-| SPXW 260515C05795000           | 5795.00 | 31.4 | 32.1 | 31.8 |  1,234 |   8,910 |   62.93 |
-| SPXW 260515P05795000           | 5795.00 |  5.5 |  6.0 |  5.8 |  2,201 |   7,344 |   62.93 |
-| ...                                                                                          |
-| SPXW 260515C05820000 *         | 5820.00 | 15.0 | 15.4 | 15.2 |  3,109 |  12,455 |   38.66 |
-| SPXW 260515P05820000 *         | 5820.00 | 15.6 | 16.1 | 15.85| 4,002  |  11,201 |   38.66 |
-| ...                                                                                          |
-  (* = ATM strike. 1σ Move = per-strike straddle mid × √(π/2))
-
-== tastylive 60/30/10 Expected Move ==
-  Spot                = 5821.40
-  ATM strike          = 5820.00
-  ATM straddle (mid)  = 31.05
-  1st OTM strangle    = 27.40
-  2nd OTM strangle    = 22.10
-  Weights applied     = 1.00
-  Expected move (1σ)  = ±29.04
-  Upper bound         = 5850.44
-  Lower bound         = 5792.36
-  As % of spot        = ±0.50%
+EM(1σ) = 0.60 × ATM_straddle
+       + 0.30 × 1st_OTM_strangle   (call +1 strike, put −1 strike)
+       + 0.10 × 2nd_OTM_strangle   (call +2 strikes, put −2 strikes)
 ```
 
-## Notes & caveats
+All legs use mid prices. If an OTM strangle is unavailable its weight is
+dropped and the remaining weights are rescaled. The result is a dollar-value
+1-sigma expected move for the chosen expiration.
 
-- **0DTE availability**: outside RTH, SPX 0DTE may not be quoting. On a
-  weekend the script falls forward to the next available expiration.
-- **Field IDs**: the Client Portal snapshot field for open interest has
-  varied across gateway versions. Override with `--oi-field` if your gateway
-  exposes it under a different code; `OI` will simply render as `-` when the
-  field is unavailable.
-- **Snapshot priming**: IBKR's snapshot endpoint streams data lazily — the
-  client polls a few times to allow fields to populate. If you still see
-  empty fields, market data subscriptions or post-hours conditions are the
-  usual culprits.
-- **No order routing**: this script is read-only. It performs no trades and
-  does not place any orders.
+The per-row **1σ Move** column in the table shows `straddle_mid × √(π/2)`
+— the theoretical 1-sigma from that strike's own call+put pair — and lets
+you see how the implied move varies across the chain.
+
+---
+
+## 6. Example output
+
+```
+SPX  spot=5821.40  expiry=2026-05-15 (0DTE)  [10:32:11]
+
+|               Contract | Strike |   Bid |   Ask |   Mid |    OI |  Volume | 1σ Move |
+|------------------------|--------|-------|-------|-------|-------|---------|---------|
+|   SPXW 260515C05795000 |   5795 | 31.40 | 31.80 | 31.60 | 1,203 |   8,410 |   46.29 |
+|   SPXW 260515P05795000 |   5795 |  5.20 |  5.60 |  5.40 | 2,101 |   6,840 |   46.29 |
+|           ...                                                                         |
+| SPXW 260515C05820000 * |   5820 |  9.10 |  9.50 |  9.30 | 3,009 |  11,455 |   21.43 |
+| SPXW 260515P05820000 * |   5820 |  7.70 |  8.10 |  7.90 | 3,802 |  10,201 |   21.43 |
+|           ...                                                                         |
+
+  (* = ATM strike  |  1σ Move = per-strike straddle mid × √(π/2))
+
+  tastylive 60/30/10  EM = ±16.20 (0.28%)   [5805.20 … 5837.60]
+    ATM straddle = 17.20  |  OTM1 = 15.10  |  OTM2 = 13.90  |  weights = 1.00
+```
+
+---
+
+## 7. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `Connection refused` on startup | Gateway not running | Start `bin/run.sh root/conf.yaml` |
+| `Gateway is not authenticated` | Session expired or never logged in | Open `https://localhost:5000` in a browser and log in |
+| All bid/ask fields show `-` | Delayed or missing market-data subscription | Verify the SPX option data subscription in Account Management |
+| OI shows `-` | Field `7762` not populated by this gateway version | Try `--oi-field 7085` or `--oi-field 7635`; check your gateway's API reference |
+| `competing=True` in auth status | Another session is active (e.g. TWS) | Either close the competing session or enable "Allow competing connection" in TWS |
+| Session logs out quickly | No keepalive | Run `python keepalive.py` in a second terminal |
