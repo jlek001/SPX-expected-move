@@ -2,10 +2,18 @@
 
 Pulls a live SPX 0DTE options snapshot from a running Interactive Brokers
 Client Portal Gateway, resolves the nearest daily expiration and a band of
-strikes around spot, and prints:
+strikes around spot, and shows:
 
 - A per-contract table (symbol, strike, bid, ask, mid, OI, volume, 1σ move).
 - The tastylive **60/30/10** weighted expected move with upper/lower bounds.
+
+Three frontends from the same backend logic:
+
+| Frontend | Command | Best for |
+|----------|---------|----------|
+| CLI snapshot | `python spx_expected_move.py` | Quick check from a terminal |
+| CLI watch | `python spx_expected_move.py --watch 60` | Live monitoring in a terminal |
+| **Mobile / Web app** | `python app.py` | **iPhone / Android / any browser** |
 
 ---
 
@@ -74,22 +82,58 @@ pip install -r requirements.txt
 
 ## 3. Run
 
-### Single snapshot
+Pick one of the three frontends.
+
+### 3a. CLI — single snapshot
 
 ```bash
 python spx_expected_move.py
 ```
 
-### Intraday watch mode (auto-refreshes, contract conids cached after first run)
+### 3b. CLI — live watch
 
 ```bash
 python spx_expected_move.py --watch 60   # refresh every 60 seconds
 ```
 
-### Keep the gateway session alive in a separate terminal
+### 3c. Mobile / Web app
 
-The gateway logs you out after ~10 minutes of inactivity. Run this alongside
-the main script:
+Run the FastAPI server on the same machine as the gateway:
+
+```bash
+python app.py                          # listens on 0.0.0.0:8000
+python app.py --port 8080              # custom port
+python app.py --host 127.0.0.1         # local-only (desktop browser only)
+```
+
+Then:
+
+- **On the desktop** — open `http://localhost:8000` in any browser.
+- **On your phone (same Wi-Fi)** — find your desktop's LAN IP
+  (`ipconfig getifaddr en0` on macOS, `hostname -I` on Linux,
+  `ipconfig` on Windows) and browse to `http://<that-ip>:8000`.
+- **Remote access** — tunnel the port via Tailscale, ngrok, or Cloudflare
+  Tunnel: `ngrok http 8000` and use the public URL.
+- **Install on home screen (PWA)** — in mobile Safari/Chrome, tap *Share →
+  Add to Home Screen*. It launches full-screen like a native app.
+
+The mobile UI has:
+
+- Sticky header with spot price, ±EM, upper/lower bounds, and a live
+  status pill (green = live, amber = fetching, red = error).
+- Toolbar for strike count (±3/5/7/10/15) and auto-refresh interval
+  (Manual / 5s / 15s / 30s / 60s).
+- Horizontally scrollable chain table with calls on the left, strike in
+  the middle, puts on the right; ATM row highlighted in blue.
+- Metadata block showing ATM straddle, both OTM strangle legs, weights
+  used, and the snapshot timestamp.
+- Auto-refreshes when the tab regains focus.
+- Light/dark mode follows the OS setting.
+
+### 3d. Keep the gateway session alive
+
+The gateway logs you out after ~10 minutes of inactivity. Run this in a
+separate terminal alongside any frontend:
 
 ```bash
 python keepalive.py                  # tickle every 55 s
@@ -120,6 +164,23 @@ python keepalive.py --interval 30    # faster
 |------|---------|-------------|
 | `--base-url` | `https://localhost:5000/v1/api` | Gateway URL |
 | `--interval` | `55` | Seconds between tickles |
+
+### app.py (web/mobile server)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host` | `0.0.0.0` | Bind address (`0.0.0.0` exposes on LAN; use `127.0.0.1` to restrict) |
+| `--port` | `8000` | HTTP port |
+| `--gateway-url` | `https://localhost:5000/v1/api` | CP Gateway URL |
+| `--oi-field` | `7762` | Snapshot field ID for OI |
+| `--exchange` | `SMART` | Chain lookup routing |
+| `--trading-class` | `SPXW` | Preferred option trading class |
+
+JSON endpoints (for scripting or custom dashboards):
+
+- `GET /api/status` → auth/connection status
+- `GET /api/snapshot?num_strikes=5&refresh_chain=false` → full snapshot
+- `GET /api/docs` → Swagger UI
 
 ---
 

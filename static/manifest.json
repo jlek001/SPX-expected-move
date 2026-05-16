@@ -1,0 +1,19 @@
+{
+  "name": "SPX Expected Move",
+  "short_name": "SPX EM",
+  "description": "Live SPX 0DTE expected move via IBKR Client Portal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

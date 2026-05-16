@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SPX EM" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg" />
+  <link rel="apple-touch-icon" href="/static/icon.svg" />
+  <title>SPX Expected Move</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --card2: #21262d;
+      --border: #30363d;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --green: #3fb950;
+      --red: #f85149;
+      --accent: #58a6ff;
+      --accent-bg: rgba(88, 166, 255, 0.1);
+      --warn: #d29922;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff; --card: #f6f8fa; --card2: #eaeef2; --border: #d0d7de;
+        --fg: #1f2328; --muted: #59636e; --green: #1a7f37; --red: #cf222e;
+        --accent: #0969da; --accent-bg: rgba(9, 105, 218, 0.08);
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px; line-height: 1.4;
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-top: env(safe-area-inset-top);
+      overscroll-behavior: contain;
+    }
+    main { max-width: 720px; margin: 0 auto; }
+
+    .header {
+      padding: 16px;
+      background: linear-gradient(180deg, var(--card) 0%, var(--bg) 100%);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; gap: 8px;
+    }
+    .ticker {
+      font-size: 12px; color: var(--muted); letter-spacing: 0.5px;
+      text-transform: uppercase; font-weight: 600;
+    }
+    .status {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 12px;
+      background: var(--card2); font-size: 11px; color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+      box-shadow: 0 0 6px transparent;
+    }
+    .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+    .dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+    .spot {
+      font-size: 36px; font-weight: 700; letter-spacing: -0.5px;
+      font-feature-settings: "tnum" 1;
+    }
+    .em-line {
+      display: flex; align-items: baseline; gap: 10px; margin-top: 6px;
+      flex-wrap: wrap;
+    }
+    .em-label { color: var(--muted); font-size: 12px; }
+    .em-value {
+      font-size: 22px; color: var(--accent); font-weight: 600;
+      font-feature-settings: "tnum" 1;
+    }
+    .em-pct { color: var(--muted); font-size: 14px; font-feature-settings: "tnum" 1; }
+    .bounds {
+      margin-top: 8px; padding: 8px 12px; background: var(--accent-bg);
+      border-radius: 6px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px; color: var(--fg); display: flex; justify-content: space-between;
+      align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .bound-label { color: var(--muted); font-size: 11px; }
+    .bound-val { font-weight: 600; }
+
+    .toolbar {
+      display: flex; gap: 8px; padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    .toolbar select, .toolbar button {
+      background: var(--card); color: var(--fg);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 12px; font-size: 13px; font-family: inherit;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .toolbar button:active { background: var(--card2); transform: scale(0.97); }
+    .toolbar select:focus, .toolbar button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .table-wrap {
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    table {
+      width: 100%; border-collapse: collapse; min-width: 560px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12px; font-feature-settings: "tnum" 1;
+    }
+    th, td {
+      text-align: right; padding: 9px 8px;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    th {
+      color: var(--muted); font-weight: 500; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.3px;
+      position: sticky; top: 0; background: var(--bg); z-index: 1;
+      border-bottom: 1px solid var(--border);
+    }
+    .strike-col { text-align: center !important; color: var(--fg); font-weight: 700; background: var(--card); }
+    th.strike-col { background: var(--card); }
+    .atm-row { background: var(--accent-bg); }
+    .atm-row .strike-col { color: var(--accent); background: var(--accent-bg); }
+    .call { color: var(--green); }
+    .put { color: var(--red); }
+    .dim { color: var(--muted); }
+
+    .meta { padding: 12px 16px; color: var(--muted); font-size: 11px;
+      font-family: ui-monospace, monospace; line-height: 1.6; }
+    .meta-row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .meta-row span:nth-child(2) { color: var(--fg); }
+
+    .alert {
+      margin: 12px 16px; padding: 12px 14px; border-radius: 8px;
+      background: rgba(248, 81, 73, 0.08); border: 1px solid var(--red);
+      color: var(--red); font-size: 13px;
+    }
+    .alert.warn { background: rgba(210, 153, 34, 0.08); border-color: var(--warn); color: var(--warn); }
+    .alert a { color: inherit; text-decoration: underline; }
+    .empty { padding: 24px; text-align: center; color: var(--muted); }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid transparent; border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="header">
+    <div class="header-row">
+      <span class="ticker">SPX <span id="exp" class="dim"></span></span>
+      <span class="status">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">connecting…</span>
+      </span>
+    </div>
+    <div class="spot" id="spot">—</div>
+    <div class="em-line">
+      <span class="em-label">Expected move (1σ)</span>
+      <span class="em-value" id="em-value">±—</span>
+      <span class="em-pct" id="em-pct"></span>
+    </div>
+    <div class="bounds" id="bounds">
+      <span><span class="bound-label">Lower</span>&nbsp;&nbsp;<span class="bound-val" id="lower">—</span></span>
+      <span><span class="bound-label">Upper</span>&nbsp;&nbsp;<span class="bound-val" id="upper">—</span></span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <select id="num-strikes" aria-label="Strikes per side">
+      <option value="3">±3 strikes</option>
+      <option value="5" selected>±5 strikes</option>
+      <option value="7">±7 strikes</option>
+      <option value="10">±10 strikes</option>
+      <option value="15">±15 strikes</option>
+    </select>
+    <select id="interval" aria-label="Refresh interval">
+      <option value="0">Manual</option>
+      <option value="5">5s</option>
+      <option value="15" selected>15s</option>
+      <option value="30">30s</option>
+      <option value="60">60s</option>
+    </select>
+    <button id="refresh-btn" type="button">↻ Refresh</button>
+  </div>
+
+  <div id="alert-slot"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Call OI</th>
+          <th>Call Vol</th>
+          <th class="call">Call Bid</th>
+          <th class="call">Call Ask</th>
+          <th class="strike-col">Strike</th>
+          <th class="put">Put Bid</th>
+          <th class="put">Put Ask</th>
+          <th>Put Vol</th>
+          <th>Put OI</th>
+          <th>1σ</th>
+        </tr>
+      </thead>
+      <tbody id="chain-body">
+        <tr><td colspan="10" class="empty"><span class="spinner"></span>&nbsp; loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="meta">
+    <div class="meta-row"><span>ATM strike</span><span id="m-atm">—</span></div>
+    <div class="meta-row"><span>ATM straddle</span><span id="m-atm-strad">—</span></div>
+    <div class="meta-row"><span>1st OTM strangle</span><span id="m-otm1">—</span></div>
+    <div class="meta-row"><span>2nd OTM strangle</span><span id="m-otm2">—</span></div>
+    <div class="meta-row"><span>tastylive 60/30/10 weights</span><span id="m-weights">—</span></div>
+    <div class="meta-row" style="margin-top:6px;border-top:1px solid var(--border);padding-top:8px;">
+      <span>Last update</span><span id="m-ts">—</span>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let timer = null;
+  let inFlight = false;
+
+  const fmt = (v, d = 2) => v == null || Number.isNaN(v) ? "—" :
+    Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const fmtInt = (v) => v == null ? "—" : Math.round(v).toLocaleString("en-US");
+
+  function setStatus(kind, text) {
+    $("status-dot").className = "dot " + kind;
+    $("status-text").textContent = text;
+  }
+
+  function showAlert(html, level = "err") {
+    $("alert-slot").innerHTML = `<div class="alert ${level === 'warn' ? 'warn' : ''}">${html}</div>`;
+  }
+  function clearAlert() { $("alert-slot").innerHTML = ""; }
+
+  async function refresh(forceChain = false) {
+    if (inFlight) return;
+    inFlight = true;
+    setStatus("warn", "fetching…");
+    try {
+      const n = $("num-strikes").value;
+      const url = `/api/snapshot?num_strikes=${n}&refresh_chain=${forceChain ? "true" : "false"}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.status === 401) {
+        const body = await res.json().catch(() => ({}));
+        setStatus("err", "not authenticated");
+        showAlert(
+          `Gateway not authenticated. <a href="https://localhost:5000" target="_blank" rel="noopener">Log in at https://localhost:5000</a>, then refresh.`,
+          "warn"
+        );
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+      }
+      const d = await res.json();
+      render(d);
+      setStatus("ok", "live");
+      clearAlert();
+    } catch (e) {
+      setStatus("err", "error");
+      showAlert(`Couldn't reach the gateway: ${e.message || e}`);
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  function render(d) {
+    $("spot").textContent = fmt(d.spot);
+    $("exp").textContent = `· ${d.expiry} · ${d.dte === 0 ? "0DTE" : d.dte + " DTE"}`;
+
+    if (d.expected_move != null) {
+      $("em-value").textContent = `±${fmt(d.expected_move)}`;
+      $("em-pct").textContent = `(${fmt(d.pct_move, 2)}%)`;
+      $("lower").textContent = fmt(d.lower_bound);
+      $("upper").textContent = fmt(d.upper_bound);
+    } else {
+      $("em-value").textContent = "±—";
+      $("em-pct").textContent = "";
+      $("lower").textContent = "—";
+      $("upper").textContent = "—";
+    }
+
+    const body = $("chain-body");
+    body.innerHTML = "";
+    if (!d.chain || !d.chain.length) {
+      body.innerHTML = `<tr><td colspan="10" class="empty">no chain data</td></tr>`;
+    } else {
+      for (const row of d.chain) {
+        const tr = document.createElement("tr");
+        if (row.is_atm) tr.className = "atm-row";
+        const c = row.c || {};
+        const p = row.p || {};
+        tr.innerHTML = `
+          <td class="dim">${fmtInt(c.open_interest)}</td>
+          <td class="dim">${fmtInt(c.volume)}</td>
+          <td class="call">${fmt(c.bid)}</td>
+          <td class="call">${fmt(c.ask)}</td>
+          <td class="strike-col">${row.strike.toFixed(0)}${row.is_atm ? " *" : ""}</td>
+          <td class="put">${fmt(p.bid)}</td>
+          <td class="put">${fmt(p.ask)}</td>
+          <td class="dim">${fmtInt(p.volume)}</td>
+          <td class="dim">${fmtInt(p.open_interest)}</td>
+          <td>${fmt(row.sigma_move)}</td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
+    $("m-atm").textContent = d.atm_strike != null ? d.atm_strike.toFixed(0) : "—";
+    $("m-atm-strad").textContent = fmt(d.atm_straddle);
+    $("m-otm1").textContent = fmt(d.otm1_strangle);
+    $("m-otm2").textContent = fmt(d.otm2_strangle);
+    $("m-weights").textContent = d.weight_used != null ? d.weight_used.toFixed(2) : "—";
+    $("m-ts").textContent = d.timestamp ? d.timestamp.replace("T", " ") : "—";
+  }
+
+  function setupAutoRefresh() {
+    if (timer) { clearInterval(timer); timer = null; }
+    const sec = parseInt($("interval").value, 10);
+    if (sec > 0) timer = setInterval(() => refresh(false), sec * 1000);
+  }
+
+  $("refresh-btn").addEventListener("click", () => refresh(true));
+  $("interval").addEventListener("change", setupAutoRefresh);
+  $("num-strikes").addEventListener("change", () => refresh(true));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refresh(false);
+  });
+
+  refresh(true);
+  setupAutoRefresh();
+})();
+</script>
+</body>
+</html>
